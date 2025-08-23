@@ -1,0 +1,38 @@
+/* Global */
+:root {
+  --bg1: linear-gradient(120deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+  --glass: rgba(255, 255, 255, 0.08);
+  --text: #f2f5f7;
+  --accent: #7fe9de;
+}
+
+/* Background */
+.main > div {
+  background: var(--bg1);
+}
+
+/* Hero */
+.hero { margin: 1rem 0 0.5rem 0; }
+.badge { display:inline-block; padding:6px 12px; border-radius:999px; background:var(--glass); color:var(--accent); border:1px solid rgba(255,255,255,.12); font-weight:600; }
+.title { font-size: 2.6rem; color: var(--text); margin: .2rem 0; }
+.subtitle { color: rgba(255,255,255,.85); max-width: 800px; }
+
+/* Cards */
+.card, .hero-card, .answer-card, .suggestions { 
+  background: var(--glass);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+  box-shadow: 0 8px 30px rgba(0,0,0,.25);
+}
+.hero-card { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.metric { text-align:center; }
+.metric-value { font-size: 2rem; }
+.metric-label { color: rgba(255,255,255,.9); }
+
+.answer-title { font-weight: 700; color: var(--accent); margin-bottom: .5rem; }
+
+/* Streamlit overrides */
+section[data-testid="stSidebar"] > div { background: rgba(0,0,0,.35); }
+div.stButton > button { border-radius: 999px; font-weight: 700; padding: .6rem 1rem; }
