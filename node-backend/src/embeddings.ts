@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { config } from './config';
+import { config } from './config.js'; // ✅ must include .js after build
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -10,24 +10,42 @@ export interface EmbeddingsProvider {
 
 export function createEmbeddings(): EmbeddingsProvider {
   const provider = config.embeddingProvider;
-  if (provider === 'openai' && config.openaiApiKey) return new OpenAIEmbeddings();
-  if (provider === 'gemini' && config.geminiApiKey) return new GeminiEmbeddings();
+  
+  // ✅ Correctly check that the API key is not an empty string
+  if (provider === 'openai' && config.openaiApiKey) {
+    return new OpenAIEmbeddings();
+  }
+  
+  // ✅ Added a check to ensure the API key is not an empty string
+  if (provider === 'gemini' && config.geminiApiKey) {
+    return new GeminiEmbeddings();
+  }
+
+  // Fallback to a local provider if no keys are found
   return new HashEmbeddings();
 }
 
 class OpenAIEmbeddings implements EmbeddingsProvider {
   client = new OpenAI({ apiKey: config.openaiApiKey });
   model = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+
   async embedTexts(texts: string[]): Promise<number[][]> {
-    const resp = await this.client.embeddings.create({ model: this.model, input: texts });
+    const resp = await this.client.embeddings.create({
+      model: this.model,
+      input: texts,
+    });
     return resp.data.map(d => d.embedding as unknown as number[]);
   }
-  async embedQuery(text: string): Promise<number[]> { return (await this.embedTexts([text]))[0]; }
+
+  async embedQuery(text: string): Promise<number[]> {
+    return (await this.embedTexts([text]))[0];
+  }
 }
 
 class GeminiEmbeddings implements EmbeddingsProvider {
   genai = new GoogleGenerativeAI(config.geminiApiKey);
   model = process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004';
+
   async embedTexts(texts: string[]): Promise<number[][]> {
     const model = this.genai.getGenerativeModel({ model: this.model });
     const out: number[][] = [];
@@ -37,15 +55,23 @@ class GeminiEmbeddings implements EmbeddingsProvider {
     }
     return out;
   }
-  async embedQuery(text: string): Promise<number[]> { return (await this.embedTexts([text]))[0]; }
+
+  async embedQuery(text: string): Promise<number[]> {
+    return (await this.embedTexts([text]))[0];
+  }
 }
 
 class HashEmbeddings implements EmbeddingsProvider {
   constructor(private dim: number = 512) {}
+
   async embedTexts(texts: string[]): Promise<number[][]> {
     return texts.map(t => this.hashVec(t));
   }
-  async embedQuery(text: string): Promise<number[]> { return this.hashVec(text); }
+
+  async embedQuery(text: string): Promise<number[]> {
+    return this.hashVec(text);
+  }
+
   private hashVec(text: string): number[] {
     const v = new Array(this.dim).fill(0);
     for (const tok of text.toLowerCase().split(/\s+/g)) {
