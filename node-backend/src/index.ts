@@ -1,7 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { config } from './config.js';
+import fs from 'fs';
+import path from 'path';
+import { config as typedConfig } from './config.js';
 import { VectorStore } from './vectorStore.js';
 import { answerQuestion } from './rag.js';
 import { ingestPdf } from './ingestion/pdf.js';
@@ -10,12 +13,23 @@ import { ingestGoogleDocs } from './ingestion/google.js';
 import { Analytics } from './analytics.js';
 
 const app = express();
-app.use(cors({ origin: config.corsOrigin }));
+
+app.use(cors({ origin: typedConfig.corsOrigin }));
 app.use(express.json({ limit: '10mb' }));
 
-const upload = multer();
-const store = new VectorStore(config.vectorstorePersist);
-const analytics = new Analytics(config.sqliteDb);
+const upload = multer({ dest: 'uploads/' });
+
+const store = new VectorStore(typedConfig.vectorstorePersist);
+const analytics = new Analytics(typedConfig.sqliteDb);
+
+console.log('=== AskMate backend config ===');
+console.log({
+  port: typedConfig.port,
+  llmProvider: typedConfig.llmProvider,
+  embeddingProvider: typedConfig.embeddingProvider,
+  vectorstore: typedConfig.vectorstorePersist,
+  sqliteDb: typedConfig.sqliteDb,
+});
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
@@ -27,17 +41,28 @@ app.post('/api/ask', async (req, res) => {
     analytics.logQuery(query, r.fromDocs, r.sources, channel);
     res.json(r);
   } catch (e: any) {
+    console.error('ASK error:', e);
     res.status(500).json({ error: e?.message || 'Server error' });
   }
 });
 
 app.post('/api/ingest/pdf', upload.array('files'), async (req, res) => {
   try {
-    const files = req.files as Express.Multer.File[];
+    const files = req.files as any[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
     let total = 0;
-    for (const f of files) total += await ingestPdf(f.buffer, f.originalname, store);
+    for (const f of files) {
+      const filePath = path.resolve(f.path);
+      const data = fs.readFileSync(filePath);
+      total += await ingestPdf(data, f.originalname, store);
+      fs.unlinkSync(filePath);
+    }
     res.json({ ok: true, chunks: total });
   } catch (e: any) {
+    console.error('PDF ingest error:', e);
     res.status(500).json({ error: e?.message || 'Ingest failed' });
   }
 });
@@ -57,40 +82,51 @@ app.post('/api/ingest/google', async (req, res) => {
   try {
     const { fileIds } = req.body || {};
     if (!Array.isArray(fileIds)) return res.status(400).json({ error: 'fileIds must be array' });
-    if (!config.googleClientSecretFile) return res.status(400).json({ error: 'GOOGLE_CLIENT_SECRET_FILE not set' });
-    const count = await ingestGoogleDocs(fileIds, store, config.googleClientSecretFile);
+    if (!typedConfig.googleClientSecretFile) return res.status(400).json({ error: 'GOOGLE_CLIENT_SECRET_FILE not set' });
+    const count = await ingestGoogleDocs(fileIds, store, typedConfig.googleClientSecretFile);
     res.json({ ok: true, chunks: count });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Google ingest failed' });
   }
 });
 
-app.get('/api/analytics/summary', (_req, res) => {
-  res.json({
-    total: analytics.countQueries(),
-    answered: analytics.countAnswered(),
-    unanswered: analytics.countUnanswered(),
-  });
+app.get('/api/analytics', async (_req, res) => {
+  try {
+    const total_questions = analytics.countQueries();
+    const answered_from_docs = analytics.countAnswered();
+    const unanswered_flagged = analytics.countUnanswered();
+    const top_questions = analytics.topQuestions();
+    const top_sources = analytics.topSources();
+    const unanswered_recommended_faqs = analytics.unanswered();
+
+    res.json({
+      total_questions: total_questions,
+      answered_from_docs: answered_from_docs,
+      unanswered_flagged: unanswered_flagged,
+      top_questions: top_questions,
+      top_sources: top_sources,
+      unanswered_recommended_faqs: unanswered_recommended_faqs,
+    });
+  } catch (e: any) {
+    console.error('Failed to fetch analytics data:', e);
+    res.status(500).json({ error: 'Failed to fetch analytics data.' });
+  }
 });
 
-app.get('/api/analytics/top-questions', (req, res) => {
-  const days = parseInt((req.query.days as string) || '7', 10);
-  const limit = parseInt((req.query.limit as string) || '5', 10);
-  res.json(analytics.topQuestions(days, limit));
+
+app.get('/api/settings', (_req, res) => {
+  try {
+    res.json({
+      embedding_provider: typedConfig.embeddingProvider,
+      vectorstore_dir: typedConfig.vectorstorePersist,
+      llm_provider: typedConfig.llmProvider,
+      database_url: typedConfig.sqliteDb,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Failed to fetch settings' });
+  }
 });
 
-app.get('/api/analytics/top-sources', (req, res) => {
-  const days = parseInt((req.query.days as string) || '7', 10);
-  const limit = parseInt((req.query.limit as string) || '5', 10);
-  res.json(analytics.topSources(days, limit));
-});
-
-app.get('/api/analytics/unanswered', (req, res) => {
-  const days = parseInt((req.query.days as string) || '30', 10);
-  const limit = parseInt((req.query.limit as string) || '10', 10);
-  res.json(analytics.unanswered(days, limit));
-});
-
-app.listen(config.port, () => {
-  console.log(`AskMate backend listening on :${config.port}`);
+app.listen(typedConfig.port, () => {
+  console.log(`AskMate backend listening on :${typedConfig.port}`);
 });
